@@ -187,12 +187,36 @@ export async function registerRoutes(
       return res.status(404).json({ message: "Template not found" });
     }
 
-    const filepath = path.join(__dirname, "../templates", filename);
+    // Resolve templates directory from project root — works in local dev,
+    // esbuild-bundled (Replit) and Vercel serverless environments.
+    const templatesDir =
+      path.join(__dirname, "../templates");
+
+    const filepath = path.join(templatesDir, filename);
     if (!fs.existsSync(filepath)) {
       return res.status(404).json({ message: "Template file not found" });
     }
 
-    res.download(filepath, filename);
+    // Read into memory and send as a buffer so the response is fully
+    // serialised before being returned. This is required for Vercel
+    // serverless functions which do not support streaming file responses
+    // (res.download / res.sendFile) reliably.
+    try {
+      const fileBuffer = fs.readFileSync(filepath);
+      res.setHeader(
+        "Content-Type",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      );
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`,
+      );
+      res.setHeader("Content-Length", fileBuffer.length);
+      res.send(fileBuffer);
+    } catch (err) {
+      console.error("Template read error:", err);
+      res.status(500).json({ message: "Failed to read template file" });
+    }
   });
 
   return httpServer;
