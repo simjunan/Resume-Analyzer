@@ -5,9 +5,6 @@ import * as schema from "@shared/schema";
 const { Pool } = pg;
 
 if (!process.env.DATABASE_URL) {
-  // Log a warning rather than throwing — a missing DATABASE_URL would
-  // crash the module at import time, causing FUNCTION_INVOCATION_FAILED
-  // for every request even though the core analysis flow doesn't need a DB.
   console.warn(
     "DATABASE_URL is not set. Database operations will fail at runtime. " +
     "Resume analysis will still work; only anonymised analytics storage is affected.",
@@ -17,4 +14,14 @@ if (!process.env.DATABASE_URL) {
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL || "postgresql://localhost/placeholder",
 });
+
+// pg.Pool emits 'error' on the pool object when a client encounters an
+// unexpected error (e.g. the DB is unreachable or DATABASE_URL is a
+// placeholder). Without this listener Node.js treats it as an uncaught
+// exception and crashes the process — causing FUNCTION_INVOCATION_FAILED
+// on Vercel. Log it instead so the rest of the request can still complete.
+pool.on("error", (err) => {
+  console.error("pg pool error (non-fatal):", err.message);
+});
+
 export const db = drizzle(pool, { schema });
