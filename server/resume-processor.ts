@@ -1,12 +1,7 @@
 import OpenAI from "openai";
 import fs from "fs/promises";
 import path from "path";
-import { fileURLToPath } from "url";
 import type { IStorage } from "./storage";
-
-// ESM dirname equivalent
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // pdf-parse is CommonJS, use dynamic import
 async function parsePDF(buffer: Buffer) {
@@ -14,16 +9,32 @@ async function parsePDF(buffer: Buffer) {
   return pdf(buffer);
 }
 
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
+// Lazy-initialise the OpenAI client so that a missing API key does NOT
+// crash the module at import time (which would cause FUNCTION_INVOCATION_FAILED
+// on Vercel before any request is even handled).
+let _openai: OpenAI | null = null;
+function getOpenAI(): OpenAI | null {
+  if (_openai) return _openai;
+  const apiKey =
+    process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
+    process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+  try {
+    _openai = new OpenAI({
+      apiKey,
+      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+    });
+    return _openai;
+  } catch {
+    return null;
+  }
+}
 
 // Vercel serverless has a read-only filesystem except for /tmp.
 // Use /tmp when running on Vercel so model writes don't crash.
 const DATA_DIR = process.env.VERCEL
   ? "/tmp/resume-analyzer-data"
-  : path.join(__dirname, "../data");
+  : path.join(process.cwd(), "data");
 const MODEL_PATH = path.join(DATA_DIR, "gating_model.json");
 
 export interface GatingModel {
@@ -448,7 +459,12 @@ export function buildImprovements(
 
 async function openaiRewriteBullets(bullets: string[], profession: string | undefined, sectionTitle: string): Promise<string[]> {
   try {
-    const response = await openai.chat.completions.create({
+    const client = getOpenAI();
+    if (!client) {
+      console.warn("OpenAI API key not configured — skipping LLM rewrite.");
+      return bullets;
+    }
+    const response = await client.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
