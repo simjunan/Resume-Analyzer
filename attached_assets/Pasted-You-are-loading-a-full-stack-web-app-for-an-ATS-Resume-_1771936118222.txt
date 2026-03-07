@@ -1,0 +1,109 @@
+You are loading a full-stack web app for an ATS Resume Reviewer that is designed to learn over time (not just an AI wrapper).
+
+PROJECT GOAL
+Build a web-based resume reviewer that:
+- Accepts PDF and DOCX resumes
+- Scores them (0–10) on:
+  1) ATS Compatibility
+  2) Format & Presentation
+  3) Skillset / Role Fit (only if profession selected)
+- Shows feedback with prioritized improvements
+- Produces Before/After rewrites with changes highlighted in yellow
+  - Desktop: side-by-side comparison
+  - Mobile: rewrite only by default
+- Conditionally provides ATS-safe DOCX templates if ATS score < 6.5
+- Learns over time using anonymized numeric features + user feedback
+  (no resume files or resume text are stored)
+
+IMPORTANT PRIVACY CONSTRAINT
+- Resume files and extracted text must only exist in memory per request
+- Only store:
+  - numeric/boolean feature vectors
+  - model decisions
+  - feedback signals
+
+────────────────────────────
+
+PROJECT STRUCTURE (FROM ZIP)
+
+backend/
+  app/
+    main.py        → FastAPI backend (all logic + ML learning loop)
+    data/          → SQLite DB + gating_model.json (created at runtime)
+  templates/
+    ATS_Resume_Template_Classic.docx
+    ATS_Resume_Template_Modern_Minimal.docx
+    ATS_Resume_Template_Compact.docx
+  static/
+    index.html     → responsive frontend UI
+  requirements.txt
+
+.replit            → run configuration
+README.md
+
+────────────────────────────
+
+WHAT EACH PART DOES
+
+backend/app/main.py:
+- Serves UI at /
+- POST /api/review
+    → parse resume
+    → compute ATS + format + role-fit scores
+    → generate feedback
+    → rewrite bullets (LLM) using rewrite-gating model
+    → return full report JSON
+- POST /api/feedback
+    → store anonymized learning signals only
+- POST /api/admin/retrain
+    → update rewrite-gating model from feedback
+- GET /api/templates/{classic|modern|compact}
+    → serve ATS DOCX templates
+
+backend/static/index.html:
+- Upload form
+- Scoring cards
+- Feedback section with votes
+- Before/After rewrite UI with yellow diff highlights
+- Conditional template downloads
+- Fully responsive for mobile + desktop
+
+backend/templates/:
+- Static ATS-safe DOCX resume templates for download
+
+────────────────────────────
+
+HOW TO RUN
+
+1) Install dependencies:
+   pip install -r backend/requirements.txt
+
+2) Run backend server:
+   cd backend
+   uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+3) Open the web preview
+
+────────────────────────────
+
+ENVIRONMENT
+
+Add Replit secret:
+OPENAI_API_KEY = your API key
+
+────────────────────────────
+
+IMPORTANT IMPLEMENTATION RULES
+
+- Do NOT log resume text
+- Do NOT persist resume files
+- Only anonymized features + feedback should be stored
+- Rewrites must keep same number of bullets
+- Strong bullets must remain unchanged
+- ATS templates only appear when ATS score < 6.5
+
+────────────────────────────
+
+If anything is unclear in file loading or execution, inspect backend/app/main.py first — it contains the full pipeline logic.
+
+Proceed to load, run, and verify end-to-end flow.

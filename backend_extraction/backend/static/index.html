@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>ATS Resume Reviewer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/diff_match_patch/20121119/diff_match_patch.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-900">
+  <div class="max-w-5xl mx-auto px-4 py-6">
+    <header class="flex items-start justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-semibold tracking-tight">ATS Resume Reviewer</h1>
+        <p class="text-sm text-slate-600 mt-1">Scores, feedback, and rewrites with privacy-preserving learning (no resume storage).</p>
+      </div>
+      <div class="text-xs text-slate-600 bg-white border rounded-lg px-3 py-2">
+        <div class="font-medium text-slate-800">Privacy</div>
+        <div>No resume files/text stored</div>
+      </div>
+    </header>
+
+    <section class="mt-6 bg-white border rounded-2xl p-5">
+      <h2 class="text-lg font-semibold">Upload resume</h2>
+      <p class="text-sm text-slate-600 mt-1">PDF or DOCX. Profession is optional (Role Fit appears only if selected).</p>
+
+      <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium mb-1">Resume file</label>
+          <input id="file" type="file" accept=".pdf,.docx" class="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-white hover:file:bg-slate-700"/>
+          <p class="text-xs text-slate-500 mt-2">If parsing is inaccurate, export a text-based PDF or upload DOCX (paste-text fallback can be added in v2).</p>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium mb-1">Profession (optional)</label>
+          <select id="profession" class="w-full rounded-lg border px-3 py-2 text-sm">
+            <option value="">No selection</option>
+            <option value="software_engineer">Software Engineer</option>
+            <option value="product_manager">Product Manager</option>
+            <option value="product_designer">Product Designer</option>
+            <option value="business_analyst">Business Analyst</option>
+            <option value="solution_engineer">Solution Engineer (Customer-facing)</option>
+          </select>
+
+          <div class="mt-3 flex items-center gap-2">
+            <input id="consent" type="checkbox" class="h-4 w-4" checked />
+            <label for="consent" class="text-sm text-slate-700">
+              Help improve the model by sharing anonymized signals (no resume text stored)
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-5 flex flex-wrap items-center gap-3">
+        <button id="reviewBtn" class="rounded-xl bg-slate-900 text-white px-4 py-2 text-sm font-medium hover:bg-slate-800">
+          Review Resume
+        </button>
+        <span id="status" class="text-sm text-slate-600"></span>
+      </div>
+    </section>
+
+    <main id="report" class="hidden mt-6 space-y-6"></main>
+
+    <footer class="mt-10 text-xs text-slate-500">
+      Built for portfolio use. No report downloads; copy from screen.
+    </footer>
+  </div>
+
+<script>
+const el = (id) => document.getElementById(id);
+const dmp = new diff_match_patch();
+
+function scoreBadge(score){
+  const s = Number(score);
+  let cls = "bg-slate-100 text-slate-800 border-slate-200";
+  if (s >= 8) cls = "bg-emerald-50 text-emerald-800 border-emerald-200";
+  else if (s >= 6.5) cls = "bg-amber-50 text-amber-900 border-amber-200";
+  else cls = "bg-rose-50 text-rose-800 border-rose-200";
+  return `<span class="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${cls}">${s.toFixed(1)}/10</span>`;
+}
+
+function highlightDiff(beforeText, afterText){
+  const diffs = dmp.diff_main(beforeText || "", afterText || "");
+  dmp.diff_cleanupSemantic(diffs);
+  const html = diffs.map(([op, data]) => {
+    const esc = data.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    if (op === 1) return `<span class="bg-yellow-200">${esc}</span>`; // insert
+    if (op === -1) return `<span class="text-slate-400 line-through">${esc}</span>`; // delete
+    return `<span>${esc}</span>`;
+  }).join("");
+  return html;
+}
+
+function sectionNav(items){
+  return `
+    <div class="sticky top-3 hidden lg:block">
+      <div class="bg-white border rounded-2xl p-4">
+        <div class="text-sm font-semibold">On this page</div>
+        <ul class="mt-2 space-y-2 text-sm">
+          ${items.map(i => `<li><a class="text-slate-700 hover:underline" href="#${i.id}">${i.label}</a></li>`).join("")}
+        </ul>
+      </div>
+    </div>
+  `;
+}
+
+async function sendVote(sessionId, eventType, targetId){
+  try{
+    await fetch("/api/feedback", {
+      method:"POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({session_id: sessionId, event_type: eventType, target_id: targetId, value: {}})
+    });
+  }catch(e){}
+}
+
+function copyText(txt){ navigator.clipboard.writeText(txt); }
+
+function renderReport(data){
+  const report = el("report");
+  report.classList.remove("hidden");
+
+  const navItems = [
+    {id:"scoring", label:"Scoring"},
+    {id:"feedback", label:"Feedback with improvement"},
+    {id:"rewrite", label:"Before/After rewrite"},
+  ];
+  if (data.show_templates) navItems.push({id:"templates", label:"ATS templates"});
+
+  const scoringCards = [
+    {title:"ATS Compatibility", score:data.scores.ats, drivers:data.score_drivers.ats},
+    {title:"Format & Presentation", score:data.scores.format, drivers:data.score_drivers.format},
+  ];
+  if (data.scores.role_fit !== null && data.scores.role_fit !== undefined){
+    scoringCards.push({title:"Skillset / Role Fit", score:data.scores.role_fit, drivers:data.score_drivers.role_fit});
+  }
+
+  const scoringHtml = `
+    <section id="scoring" class="bg-white border rounded-2xl p-5">
+      <h2 class="text-lg font-semibold">Scoring</h2>
+      <div class="mt-4 grid grid-cols-1 md:grid-cols-${scoringCards.length} gap-4">
+        ${scoringCards.map(c => `
+          <div class="border rounded-2xl p-4">
+            <div class="flex items-center justify-between gap-3">
+              <div class="text-sm font-semibold">${c.title}</div>
+              ${scoreBadge(c.score)}
+            </div>
+            <ul class="mt-3 space-y-1 text-sm text-slate-700">
+              ${(c.drivers || []).slice(0,3).map(d => `<li>• ${d}</li>`).join("")}
+            </ul>
+          </div>
+        `).join("")}
+      </div>
+      ${data.parse_warning ? `<div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+        <div class="font-semibold">Parsing warning</div>
+        <div>${data.parse_warning}</div>
+      </div>` : ""}
+    </section>
+  `;
+
+  const improvementsHtml = `
+    <section id="feedback" class="bg-white border rounded-2xl p-5">
+      <h2 class="text-lg font-semibold">Feedback with improvement</h2>
+      <p class="text-sm text-slate-600 mt-1">Vote 👍/👎 to help the model learn (no resume text stored).</p>
+
+      <div class="mt-4 space-y-3">
+        ${data.improvements.map((imp, idx) => `
+          <div class="rounded-2xl border p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="text-sm font-semibold">${idx+1}. ${imp.title}</div>
+                <div class="mt-1 text-sm text-slate-700">${imp.detail}</div>
+              </div>
+              <div class="flex flex-col items-end gap-2 shrink-0">
+                <button class="rounded-lg border px-2 py-1 text-xs hover:bg-slate-50" onclick="sendVote('${data.session_id}','SUGGESTION_UPVOTE','${imp.key}')">👍</button>
+                <button class="rounded-lg border px-2 py-1 text-xs hover:bg-slate-50" onclick="sendVote('${data.session_id}','SUGGESTION_DOWNVOTE','${imp.key}')">👎</button>
+              </div>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    </section>
+  `;
+
+  const rewriteBlocks = data.rewrite.sections.map((sec) => {
+    const beforeAll = sec.before.join("\n");
+    const afterAll = sec.after.join("\n");
+    const mobileAfterHtml = highlightDiff(beforeAll, afterAll);
+
+    const desktopRows = sec.before.map((b, i) => {
+      const a = sec.after[i] ?? "";
+      return `
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="rounded-2xl border p-4 bg-slate-50">
+            <div class="text-xs font-semibold text-slate-700">Before</div>
+            <div class="mt-2 text-sm text-slate-800 whitespace-pre-wrap">${b.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>
+          </div>
+          <div class="rounded-2xl border p-4">
+            <div class="text-xs font-semibold text-slate-700">After</div>
+            <div class="mt-2 text-sm text-slate-800 whitespace-pre-wrap">${highlightDiff(b, a)}</div>
+            <div class="mt-3 flex gap-2">
+              <button class="rounded-lg border px-2 py-1 text-xs hover:bg-slate-50" onclick="sendVote('${data.session_id}','REWRITE_ACCEPTED','${sec.key}:${i}')">Accept ✅</button>
+              <button class="rounded-lg border px-2 py-1 text-xs hover:bg-slate-50" onclick="sendVote('${data.session_id}','REWRITE_REJECTED','${sec.key}:${i}')">Reject ❌</button>
+              <button class="rounded-lg border px-2 py-1 text-xs hover:bg-slate-50" onclick="copyText(${JSON.stringify(a)})">Copy</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('<div class="h-4"></div>');
+
+    return `
+      <div class="rounded-2xl border p-4">
+        <div class="flex items-center justify-between gap-3">
+          <div class="text-sm font-semibold">${sec.title}</div>
+          <button class="rounded-lg border px-2 py-1 text-xs hover:bg-slate-50" onclick="copyText(${JSON.stringify(afterAll)})">Copy section</button>
+        </div>
+
+        <div class="mt-3 md:hidden">
+          <div class="rounded-2xl border p-4">
+            <div class="text-xs font-semibold text-slate-700">Rewrite (mobile)</div>
+            <div class="mt-2 text-sm text-slate-800 whitespace-pre-wrap">${mobileAfterHtml}</div>
+          </div>
+        </div>
+
+        <div class="mt-3 hidden md:block space-y-4">
+          ${desktopRows}
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  const rewriteHtml = `
+    <section id="rewrite" class="bg-white border rounded-2xl p-5">
+      <h2 class="text-lg font-semibold">Before/After rewrite</h2>
+      <p class="text-sm text-slate-600 mt-1">Changes highlighted in yellow. Strong bullets may remain unchanged.</p>
+      <div class="mt-4 space-y-4">
+        ${rewriteBlocks}
+      </div>
+    </section>
+  `;
+
+  const templatesHtml = data.show_templates ? `
+    <section id="templates" class="bg-white border rounded-2xl p-5">
+      <h2 class="text-lg font-semibold">ATS templates</h2>
+      <p class="text-sm text-slate-600 mt-1">Shown because ATS score is below 6.5/10. Download a clean DOCX template.</p>
+      <div class="mt-4 flex flex-wrap gap-3">
+        <a class="rounded-xl bg-slate-900 text-white px-4 py-2 text-sm font-medium hover:bg-slate-800" href="/api/templates/classic">Download Classic</a>
+        <a class="rounded-xl bg-slate-900 text-white px-4 py-2 text-sm font-medium hover:bg-slate-800" href="/api/templates/modern">Download Modern Minimal</a>
+        <a class="rounded-xl bg-slate-900 text-white px-4 py-2 text-sm font-medium hover:bg-slate-800" href="/api/templates/compact">Download Compact</a>
+      </div>
+    </section>
+  ` : "";
+
+  report.innerHTML = `
+    <div class="grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-6">
+      <div class="space-y-6">
+        ${scoringHtml}
+        ${improvementsHtml}
+        ${rewriteHtml}
+        ${templatesHtml}
+      </div>
+      ${sectionNav(navItems)}
+    </div>
+  `;
+}
+
+el("reviewBtn").addEventListener("click", async () => {
+  const f = el("file").files[0];
+  if(!f){ el("status").textContent = "Please choose a PDF or DOCX file."; return; }
+  el("status").textContent = "Processing…";
+
+  const fd = new FormData();
+  fd.append("file", f);
+  fd.append("profession", el("profession").value);
+  fd.append("consent", el("consent").checked ? "true" : "false");
+
+  const res = await fetch("/api/review", {method:"POST", body: fd});
+  if(!res.ok){
+    el("status").textContent = "Error: " + await res.text();
+    return;
+  }
+  const data = await res.json();
+  el("status").textContent = "Done.";
+  renderReport(data);
+});
+</script>
+</body>
+</html>
