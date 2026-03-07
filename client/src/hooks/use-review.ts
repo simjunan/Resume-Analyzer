@@ -47,6 +47,11 @@ export function useSubmitReview() {
         // Don't set Content-Type header; browser sets it automatically with boundary for FormData
       });
 
+      // Clone immediately — any injected script (e.g. dev overlays) may
+      // have already consumed the original body stream, so we keep a
+      // pristine clone for our own reads.
+      const resClone = res.clone();
+
       if (!res.ok) {
         let errorMessage = "Failed to analyze resume";
         try {
@@ -66,7 +71,13 @@ export function useSubmitReview() {
         throw new Error(errorMessage);
       }
 
-      return await res.json();
+      // Prefer the clone for the success-path parse; fall back to the
+      // original if the clone itself was somehow consumed.
+      try {
+        return await resClone.json();
+      } catch {
+        return await res.json();
+      }
     },
     onError: (error) => {
       toast({

@@ -95,31 +95,8 @@ export async function registerRoutes(
       const sessionId = randomUUID();
       const modelVersions = { gating_model_version: rewrite.modelVersion, llm_prompt_version: 1 };
 
-      // Store anonymized data if consent given
-      if (consent) {
-        await storage.createReviewSession({
-          id: sessionId,
-          profession,
-          consent,
-          docFeatures: docFeats,
-          scores,
-          modelVersions,
-          parseWarning,
-        });
-
-        for (const decision of rewrite.decisions) {
-          await storage.createBulletDecision({
-            id: randomUUID(),
-            sessionId,
-            sectionKey: decision.sectionKey,
-            bulletIndex: decision.bulletIndex,
-            bulletFeatures: decision.bulletFeatures,
-            decision: decision.decision,
-            decisionConf: decision.decisionConf,
-          });
-        }
-      }
-
+      // Send the analysis response immediately — don't let DB writes
+      // block or fail the request. Storage is best-effort analytics only.
       res.json({
         sessionId,
         profession,
@@ -130,6 +107,38 @@ export async function registerRoutes(
         showTemplates: atsScore.score < 6.5,
         parseWarning,
       });
+
+      // Fire-and-forget: persist anonymised analytics after the response
+      // is already on its way to the client. A DB failure here must not
+      // surface as an error to the user.
+      if (consent) {
+        Promise.resolve()
+          .then(() => storage.createReviewSession({
+            id: sessionId,
+            profession,
+            consent,
+            docFeatures: docFeats,
+            scores,
+            modelVersions,
+            parseWarning,
+          }))
+          .then(() =>
+            Promise.all(
+              rewrite.decisions.map((decision) =>
+                storage.createBulletDecision({
+                  id: randomUUID(),
+                  sessionId,
+                  sectionKey: decision.sectionKey,
+                  bulletIndex: decision.bulletIndex,
+                  bulletFeatures: decision.bulletFeatures,
+                  decision: decision.decision,
+                  decisionConf: decision.decisionConf,
+                }),
+              ),
+            ),
+          )
+          .catch((err) => console.error("Storage error (non-fatal):", err));
+      }
     } catch (error) {
       console.error("Review error:", error);
       res.status(500).json({ message: "Internal server error" });
