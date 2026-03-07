@@ -50,10 +50,18 @@ export function useSubmitReview() {
       if (!res.ok) {
         let errorMessage = "Failed to analyze resume";
         try {
-          const errData = await res.json();
-          errorMessage = errData.detail || errData.message || errorMessage;
+          // Read the body once as text, then attempt JSON parse.
+          // Calling res.json() followed by res.text() throws
+          // "body stream already read" because the stream is consumed.
+          const text = await res.text();
+          try {
+            const errData = JSON.parse(text);
+            errorMessage = errData.detail || errData.message || errorMessage;
+          } catch {
+            if (text) errorMessage = text;
+          }
         } catch {
-          errorMessage = await res.text() || errorMessage;
+          // body unreadable — keep default message
         }
         throw new Error(errorMessage);
       }
