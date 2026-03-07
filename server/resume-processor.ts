@@ -19,7 +19,11 @@ const openai = new OpenAI({
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
 
-const DATA_DIR = path.join(__dirname, "../data");
+// Vercel serverless has a read-only filesystem except for /tmp.
+// Use /tmp when running on Vercel so model writes don't crash.
+const DATA_DIR = process.env.VERCEL
+  ? "/tmp/resume-analyzer-data"
+  : path.join(__dirname, "../data");
 const MODEL_PATH = path.join(DATA_DIR, "gating_model.json");
 
 export interface GatingModel {
@@ -445,7 +449,7 @@ export function buildImprovements(
 async function openaiRewriteBullets(bullets: string[], profession: string | undefined, sectionTitle: string): Promise<string[]> {
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
