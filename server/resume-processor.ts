@@ -1,12 +1,7 @@
 import OpenAI from "openai";
 import fs from "fs/promises";
 import path from "path";
-import { fileURLToPath } from "url";
 import type { IStorage } from "./storage";
-
-// ESM dirname equivalent
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // pdf-parse is CommonJS, use dynamic import
 async function parsePDF(buffer: Buffer) {
@@ -14,12 +9,32 @@ async function parsePDF(buffer: Buffer) {
   return pdf(buffer);
 }
 
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
+// Lazy-initialise the OpenAI client so that a missing API key does NOT
+// crash the module at import time (which would cause FUNCTION_INVOCATION_FAILED
+// on Vercel before any request is even handled).
+let _openai: OpenAI | null = null;
+function getOpenAI(): OpenAI | null {
+  if (_openai) return _openai;
+  const apiKey =
+    process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
+    process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+  try {
+    _openai = new OpenAI({
+      apiKey,
+      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+    });
+    return _openai;
+  } catch {
+    return null;
+  }
+}
 
-const DATA_DIR = path.join(__dirname, "../data");
+// Vercel serverless has a read-only filesystem except for /tmp.
+// Use /tmp when running on Vercel so model writes don't crash.
+const DATA_DIR = process.env.VERCEL
+  ? "/tmp/resume-analyzer-data"
+  : path.join(process.cwd(), "data");
 const MODEL_PATH = path.join(DATA_DIR, "gating_model.json");
 
 export interface GatingModel {
@@ -444,34 +459,45 @@ export function buildImprovements(
 
 async function openaiRewriteBullets(bullets: string[], profession: string | undefined, sectionTitle: string): Promise<string[]> {
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-5.2",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You rewrite resume bullets conservatively.\n" +
-            "Rules:\n" +
-            "- Do NOT invent facts.\n" +
-            "- Keep the same number of bullets.\n" +
-            "- If a bullet is already strong, return it unchanged.\n" +
-            "- Keep tense consistent.\n" +
-            "- Prefer clear, ATS-friendly phrasing.\n" +
-            "- Avoid emojis and fancy symbols.\n" +
-            "Return ONLY a JSON array of strings.",
-        },
-        {
-          role: "user",
-          content:
-            `Section: ${sectionTitle}\n` +
-            `Profession (optional): ${profession || "None"}\n\n` +
-            "Bullets:\n" +
-            bullets.map(b => `- ${b}`).join("\n"),
-        },
-      ],
-      response_format: { type: "json_object" },
-      max_completion_tokens: 8192,
-    });
+    const client = getOpenAI();
+    if (!client) {
+      console.warn("OpenAI API key not configured — skipping LLM rewrite.");
+      return bullets;
+    }
+    // OpenAI SDK v6: pass request options as the second argument.
+    // 15 s per-call timeout prevents a single slow response from
+    // exhausting the Vercel function's execution budget.
+    const response = await client.chat.completions.create(
+      {
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content:
+              "You rewrite resume bullets conservatively.\n" +
+              "Rules:\n" +
+              "- Do NOT invent facts.\n" +
+              "- Keep the same number of bullets.\n" +
+              "- If a bullet is already strong, return it unchanged.\n" +
+              "- Keep tense consistent.\n" +
+              "- Prefer clear, ATS-friendly phrasing.\n" +
+              "- Avoid emojis and fancy symbols.\n" +
+              "Return ONLY a JSON array of strings.",
+          },
+          {
+            role: "user",
+            content:
+              `Section: ${sectionTitle}\n` +
+              `Profession (optional): ${profession || "None"}\n\n` +
+              "Bullets:\n" +
+              bullets.map(b => `- ${b}`).join("\n"),
+          },
+        ],
+        response_format: { type: "json_object" },
+        max_completion_tokens: 2048,
+      },
+      { timeout: 15_000 },
+    );
     
     const content = response.choices[0]?.message?.content || "{}";
     const parsed = JSON.parse(content);
@@ -512,39 +538,40 @@ export async function rewriteResume(
     allBullets.push(...bullets);
   }
   
-  const outSections: Array<{ key: string; title: string; before: string[]; after: string[] }> = [];
-  const decisions: Array<{ sectionKey: string; bulletIndex: number; bulletFeatures: BulletFeatures; decision: string; decisionConf: number }> = [];
-  
-  for (const sec of secBullets) {
-    if (sec.bullets.length === 0) continue;
-    
-    const featsList = sec.bullets.map(b => computeBulletFeatures(b, allBullets));
-    const rewriteFlags = featsList.map(f => gatingProbabilityRewrite(model, f) > 0.55);
-    
-    const rewritten = await openaiRewriteBullets(sec.bullets, profession, sec.title);
-    
-    const finalAfter: string[] = [];
-    for (let i = 0; i < sec.bullets.length; i++) {
-      const after = i < rewritten.length ? rewritten[i] : sec.bullets[i];
-      const final = rewriteFlags[i] ? after : sec.bullets[i];
-      finalAfter.push(final);
-      
-      decisions.push({
-        sectionKey: sec.key,
-        bulletIndex: i,
-        bulletFeatures: featsList[i],
-        decision: rewriteFlags[i] ? "REWRITE" : "KEEP",
-        decisionConf: gatingProbabilityRewrite(model, featsList[i]),
-      });
-    }
-    
-    outSections.push({
-      key: sec.key,
-      title: sec.title,
-      before: sec.bullets,
-      after: finalAfter,
-    });
-  }
-  
+  // Process every section concurrently — sequential awaits multiplied the
+  // OpenAI latency by the number of sections, causing Vercel timeouts.
+  const results = await Promise.all(
+    secBullets
+      .filter(sec => sec.bullets.length > 0)
+      .map(async sec => {
+        const featsList = sec.bullets.map(b => computeBulletFeatures(b, allBullets));
+        const rewriteFlags = featsList.map(f => gatingProbabilityRewrite(model, f) > 0.55);
+        const rewritten = await openaiRewriteBullets(sec.bullets, profession, sec.title);
+
+        const finalAfter: string[] = [];
+        const secDecisions: Array<{ sectionKey: string; bulletIndex: number; bulletFeatures: BulletFeatures; decision: string; decisionConf: number }> = [];
+
+        for (let i = 0; i < sec.bullets.length; i++) {
+          const after = i < rewritten.length ? rewritten[i] : sec.bullets[i];
+          finalAfter.push(rewriteFlags[i] ? after : sec.bullets[i]);
+          secDecisions.push({
+            sectionKey: sec.key,
+            bulletIndex: i,
+            bulletFeatures: featsList[i],
+            decision: rewriteFlags[i] ? "REWRITE" : "KEEP",
+            decisionConf: gatingProbabilityRewrite(model, featsList[i]),
+          });
+        }
+
+        return {
+          section: { key: sec.key, title: sec.title, before: sec.bullets, after: finalAfter },
+          decisions: secDecisions,
+        };
+      }),
+  );
+
+  const outSections = results.map(r => r.section);
+  const decisions = results.flatMap(r => r.decisions);
+
   return { sections: outSections, decisions, modelVersion: model.version };
 }

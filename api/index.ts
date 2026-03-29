@@ -5,6 +5,13 @@ import { app, routesReady } from "../server/app";
 import type { Request, Response } from "express";
 
 export default async function handler(req: Request, res: Response) {
-  await routesReady;
-  return app(req, res);
+  try {
+    await routesReady;
+    return app(req, res);
+  } catch (err: any) {
+    console.error("Handler init error:", err);
+    if (!res.headersSent) {
+      res.status(500).json({ message: "Server initialisation error" });
+    }
+  }
 }

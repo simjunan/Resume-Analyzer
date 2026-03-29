@@ -1,40 +1,9 @@
 import { useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import type { ReviewResponse, Improvement, SectionRewrite } from "@shared/routes";
 
-// Types matching the backend response
-export interface Improvement {
-  key: string;
-  title: string;
-  detail: string;
-}
-
-export interface SectionRewrite {
-  key: string;
-  title: string;
-  before: string[];
-  after: string[];
-}
-
-export interface ReviewResponse {
-  session_id: string;
-  profession?: string;
-  scores: {
-    ats: number;
-    format: number;
-    role_fit?: number;
-  };
-  score_drivers: {
-    ats: string[];
-    format: string[];
-    role_fit?: string[];
-  };
-  improvements: Improvement[];
-  rewrite: {
-    sections: SectionRewrite[];
-  };
-  show_templates: boolean;
-  parse_warning?: string;
-}
+// Re-export shared types so components can import from one place
+export type { ReviewResponse, Improvement, SectionRewrite };
 
 export function useSubmitReview() {
   const { toast } = useToast();
@@ -47,18 +16,37 @@ export function useSubmitReview() {
         // Don't set Content-Type header; browser sets it automatically with boundary for FormData
       });
 
+      // Clone immediately — any injected script (e.g. dev overlays) may
+      // have already consumed the original body stream, so we keep a
+      // pristine clone for our own reads.
+      const resClone = res.clone();
+
       if (!res.ok) {
         let errorMessage = "Failed to analyze resume";
         try {
-          const errData = await res.json();
-          errorMessage = errData.detail || errData.message || errorMessage;
+          // Read the body once as text, then attempt JSON parse.
+          // Calling res.json() followed by res.text() throws
+          // "body stream already read" because the stream is consumed.
+          const text = await res.text();
+          try {
+            const errData = JSON.parse(text);
+            errorMessage = errData.detail || errData.message || errorMessage;
+          } catch {
+            if (text) errorMessage = text;
+          }
         } catch {
-          errorMessage = await res.text() || errorMessage;
+          // body unreadable — keep default message
         }
         throw new Error(errorMessage);
       }
 
-      return await res.json();
+      // Prefer the clone for the success-path parse; fall back to the
+      // original if the clone itself was somehow consumed.
+      try {
+        return await resClone.json();
+      } catch {
+        return await res.json();
+      }
     },
     onError: (error) => {
       toast({
@@ -73,9 +61,9 @@ export function useSubmitReview() {
 export function useSubmitFeedback() {
   return useMutation({
     mutationFn: async (data: {
-      session_id: string;
-      event_type: "SUGGESTION_UPVOTE" | "SUGGESTION_DOWNVOTE" | "REWRITE_ACCEPTED" | "REWRITE_REJECTED";
-      target_id: string;
+      sessionId: string;
+      eventType: "SUGGESTION_UPVOTE" | "SUGGESTION_DOWNVOTE" | "REWRITE_ACCEPTED" | "REWRITE_REJECTED";
+      targetId?: string;
       value?: any;
     }) => {
       const res = await fetch("/api/feedback", {

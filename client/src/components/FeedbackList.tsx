@@ -19,9 +19,9 @@ export function FeedbackList({ sessionId, improvements }: FeedbackListProps) {
     setVotes(prev => ({ ...prev, [impKey]: type }));
     
     submitFeedback.mutate({
-      session_id: sessionId,
-      event_type: type === "up" ? "SUGGESTION_UPVOTE" : "SUGGESTION_DOWNVOTE",
-      target_id: impKey,
+      sessionId,
+      eventType: type === "up" ? "SUGGESTION_UPVOTE" : "SUGGESTION_DOWNVOTE",
+      targetId: impKey,
     });
   };
 
