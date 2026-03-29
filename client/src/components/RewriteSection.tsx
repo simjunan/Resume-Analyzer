@@ -33,9 +33,9 @@ export function RewriteSection({ sessionId, sections }: RewriteSectionProps) {
     setDecisions(prev => ({ ...prev, [id]: decision }));
     
     submitFeedback.mutate({
-      session_id: sessionId,
-      event_type: decision === "accept" ? "REWRITE_ACCEPTED" : "REWRITE_REJECTED",
-      target_id: id,
+      sessionId,
+      eventType: decision === "accept" ? "REWRITE_ACCEPTED" : "REWRITE_REJECTED",
+      targetId: id,
     });
   };
 

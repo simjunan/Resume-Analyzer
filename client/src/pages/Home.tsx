@@ -72,12 +72,12 @@ export default function Home() {
             </div>
 
             {/* Parse Warning */}
-            {report.parse_warning && (
+            {report.parseWarning && (
               <div className="flex gap-3 bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded-2xl animate-slide-up stagger-1">
                 <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600 mt-0.5" />
                 <div>
                   <h4 className="font-semibold text-amber-800">Parsing Warning</h4>
-                  <p className="text-sm mt-1 leading-relaxed opacity-90">{report.parse_warning}</p>
+                  <p className="text-sm mt-1 leading-relaxed opacity-90">{report.parseWarning}</p>
                 </div>
               </div>
             )}
@@ -97,21 +97,21 @@ export default function Home() {
                   </div>
                   
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-5">
-                    <ScoreCard 
-                      title="ATS Compatibility" 
-                      score={report.scores.ats} 
-                      drivers={report.score_drivers.ats} 
+                    <ScoreCard
+                      title="ATS Compatibility"
+                      score={report.scores.ats}
+                      drivers={report.scoreDrivers.ats}
                     />
-                    <ScoreCard 
-                      title="Format & Presentation" 
-                      score={report.scores.format} 
-                      drivers={report.score_drivers.format} 
+                    <ScoreCard
+                      title="Format & Presentation"
+                      score={report.scores.format}
+                      drivers={report.scoreDrivers.format}
                     />
-                    {report.scores.role_fit !== undefined && report.score_drivers.role_fit && (
-                      <ScoreCard 
-                        title="Skillset / Role Fit" 
-                        score={report.scores.role_fit} 
-                        drivers={report.score_drivers.role_fit} 
+                    {report.scores.role_fit !== undefined && report.scoreDrivers.role_fit && (
+                      <ScoreCard
+                        title="Skillset / Role Fit"
+                        score={report.scores.role_fit}
+                        drivers={report.scoreDrivers.role_fit}
                         className="sm:col-span-2 lg:col-span-2 xl:col-span-1"
                       />
                     )}
@@ -119,7 +119,7 @@ export default function Home() {
                 </section>
 
                 {/* Templates (Conditional) */}
-                {report.show_templates && (
+                {report.showTemplates && (
                   <section id="templates" className="scroll-mt-24 animate-slide-up stagger-2 bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-8 text-white shadow-xl">
                     <div className="max-w-2xl">
                       <h2 className="text-xl font-bold mb-2 flex items-center gap-2">
@@ -146,7 +146,7 @@ export default function Home() {
                     </div>
                     <h2 className="text-2xl font-bold text-slate-900">Key Improvements</h2>
                   </div>
-                  <FeedbackList sessionId={report.session_id} improvements={report.improvements} />
+                  <FeedbackList sessionId={report.sessionId} improvements={report.improvements} />
                 </section>
 
                 {/* Rewrites */}
@@ -158,7 +158,7 @@ export default function Home() {
                     <h2 className="text-2xl font-bold text-slate-900">AI Rewrites</h2>
                     <span className="ml-2 text-xs font-medium bg-slate-200 text-slate-600 px-2 py-1 rounded-md">Changes highlighted</span>
                   </div>
-                  <RewriteSection sessionId={report.session_id} sections={report.rewrite.sections} />
+                  <RewriteSection sessionId={report.sessionId} sections={report.rewrite.sections} />
                 </section>
 
               </div>
@@ -169,7 +169,7 @@ export default function Home() {
                   <h4 className="font-semibold text-slate-900 mb-4">On this page</h4>
                   <nav className="flex flex-col space-y-1">
                     <NavAnchor href="#scoring" label="Scoring Analysis" />
-                    {report.show_templates && <NavAnchor href="#templates" label="ATS Templates" />}
+                    {report.showTemplates && <NavAnchor href="#templates" label="ATS Templates" />}
                     <NavAnchor href="#feedback" label="Key Improvements" />
                     <NavAnchor href="#rewrites" label="AI Rewrites" />
                   </nav>

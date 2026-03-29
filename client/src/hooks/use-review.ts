@@ -1,40 +1,9 @@
 import { useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import type { ReviewResponse, Improvement, SectionRewrite } from "@shared/routes";
 
-// Types matching the backend response
-export interface Improvement {
-  key: string;
-  title: string;
-  detail: string;
-}
-
-export interface SectionRewrite {
-  key: string;
-  title: string;
-  before: string[];
-  after: string[];
-}
-
-export interface ReviewResponse {
-  session_id: string;
-  profession?: string;
-  scores: {
-    ats: number;
-    format: number;
-    role_fit?: number;
-  };
-  score_drivers: {
-    ats: string[];
-    format: string[];
-    role_fit?: string[];
-  };
-  improvements: Improvement[];
-  rewrite: {
-    sections: SectionRewrite[];
-  };
-  show_templates: boolean;
-  parse_warning?: string;
-}
+// Re-export shared types so components can import from one place
+export type { ReviewResponse, Improvement, SectionRewrite };
 
 export function useSubmitReview() {
   const { toast } = useToast();
@@ -92,9 +61,9 @@ export function useSubmitReview() {
 export function useSubmitFeedback() {
   return useMutation({
     mutationFn: async (data: {
-      session_id: string;
-      event_type: "SUGGESTION_UPVOTE" | "SUGGESTION_DOWNVOTE" | "REWRITE_ACCEPTED" | "REWRITE_REJECTED";
-      target_id: string;
+      sessionId: string;
+      eventType: "SUGGESTION_UPVOTE" | "SUGGESTION_DOWNVOTE" | "REWRITE_ACCEPTED" | "REWRITE_REJECTED";
+      targetId?: string;
       value?: any;
     }) => {
       const res = await fetch("/api/feedback", {
