@@ -3,10 +3,17 @@ import fs from "fs/promises";
 import path from "path";
 import type { IStorage } from "./storage";
 
-// pdf-parse is CommonJS, use dynamic import
+// pdf-parse v2 uses a class-based API: new PDFParse({ data: buffer }).getText()
+// The old v1 default-export function no longer exists in v2.
 async function parsePDF(buffer: Buffer) {
-  const pdf = (await import("pdf-parse")).default;
-  return pdf(buffer);
+  const { PDFParse } = await import("pdf-parse");
+  const parser = new PDFParse({ data: buffer });
+  try {
+    return await parser.getText();
+  } finally {
+    // Free WASM/memory held by the parser
+    await parser.destroy().catch(() => {});
+  }
 }
 
 // Lazy-initialise the OpenAI client so that a missing API key does NOT
@@ -257,7 +264,9 @@ function computeBulletFeatures(bullet: string, allBullets: string[]): BulletFeat
   const lenWords = words.length;
   
   const hasMetric = /(\d+%|\$\s*\d+|\d{2,})/.test(bullet) ? 1.0 : 0.0;
-  const hasActionVerb = words.length > 0 && ACTION_VERBS.has(words[0]) ? 1.0 : 0.0;
+  // words[0] is guaranteed non-null when length > 0; the non-null assertion
+  // is required because TypeScript infers string | undefined for array access.
+  const hasActionVerb = words.length > 0 && ACTION_VERBS.has(words[0]!) ? 1.0 : 0.0;
   
   const buzzWords = ["synergy", "leverage", "innovative", "dynamic", "results-driven", "strategic", "passionate"];
   const buzzCount = buzzWords.filter(w => low.includes(w)).length;
@@ -272,13 +281,16 @@ function computeBulletFeatures(bullet: string, allBullets: string[]): BulletFeat
   }
   
   // Jaccard similarity for duplicates
+  // Array.from() avoids the --downlevelIteration requirement for Set spread.
   const bulletWords = new Set(words);
+  const bulletWordsArr = Array.from(bulletWords);
   const similarities = allBullets
     .filter(b => b !== bullet)
     .map(b => {
       const otherWords = new Set((b.toLowerCase().match(/[a-zA-Z]+/g) || []));
-      const intersection = new Set([...bulletWords].filter(w => otherWords.has(w)));
-      const union = new Set([...bulletWords, ...otherWords]);
+      const otherWordsArr = Array.from(otherWords);
+      const intersection = new Set(bulletWordsArr.filter(w => otherWords.has(w)));
+      const union = new Set(bulletWordsArr.concat(otherWordsArr));
       return union.size > 0 ? intersection.size / union.size : 0;
     });
   
