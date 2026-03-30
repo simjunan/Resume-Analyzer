@@ -3,17 +3,14 @@ import fs from "fs/promises";
 import path from "path";
 import type { IStorage } from "./storage";
 
-// pdf-parse v2 uses a class-based API: new PDFParse({ data: buffer }).getText()
-// The old v1 default-export function no longer exists in v2.
+// pdf-parse v1 exports a plain async function: pdfParse(buffer) → {text,...}
+// We import from the lib path directly to bypass index.js which runs test-file
+// code (readFileSync on a non-existent path) when bundled with esbuild.
 async function parsePDF(buffer: Buffer) {
-  const { PDFParse } = await import("pdf-parse");
-  const parser = new PDFParse({ data: buffer });
-  try {
-    return await parser.getText();
-  } finally {
-    // Free WASM/memory held by the parser
-    await parser.destroy().catch(() => {});
-  }
+  // CJS interop: dynamic import of a CJS module wraps module.exports as .default
+  const mod = await import("pdf-parse/lib/pdf-parse.js");
+  const pdfParse = (mod.default ?? mod) as (buf: Buffer) => Promise<{ text: string }>;
+  return pdfParse(buffer);
 }
 
 // Lazy-initialise the OpenAI client so that a missing API key does NOT
