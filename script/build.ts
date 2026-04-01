@@ -60,22 +60,6 @@ async function buildAll() {
     logLevel: "info",
   });
 
-  // Pre-compile the Vercel serverless function as CJS.
-  // The root package.json has "type":"module" which causes @vercel/node to
-  // emit ESM output, crashing at cold-start with:
-  //   "Dynamic require of node:events is not supported"
-  // Compiling here (--format=cjs) and pointing vercel.json at the .cjs output
-  // bypasses @vercel/node's format detection entirely — .cjs is always CJS.
-  console.log("building Vercel API function...");
-  await esbuild({
-    entryPoints: ["api/index.ts"],
-    platform: "node",
-    bundle: true,
-    format: "cjs",
-    outfile: "api/index.cjs",
-    tsconfig: "tsconfig.json",
-    logLevel: "info",
-  });
 }
 
 buildAll().catch((err) => {
