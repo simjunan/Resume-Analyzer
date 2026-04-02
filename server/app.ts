@@ -58,7 +58,9 @@ app.use((req, res, next) => {
   next();
 });
 
-// Register routes and attach error handler
+// Register routes and attach error handler.
+// The .catch() here prevents an unhandled-rejection crash (Node 15+) in the
+// window between module load and the first await in the Vercel handler.
 const routesReady = (async () => {
   await registerRoutes(httpServer, app);
 
@@ -74,6 +76,8 @@ const routesReady = (async () => {
 
     return res.status(status).json({ message });
   });
-})();
+})().catch((err) => {
+  console.error("[app] Route initialisation failed:", err?.message, err?.stack);
+});
 
 export { app, httpServer, routesReady };
