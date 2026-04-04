@@ -2,6 +2,7 @@ node_modules/
 dist/
 data/
 api/index.cjs
+api/index.js
 .env
 .env.local
 *.tsbuildinfo

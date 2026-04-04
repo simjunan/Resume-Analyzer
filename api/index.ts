@@ -1,17 +1,12 @@
 // Vercel serverless entry point
+//
+// IMPORTANT: crash-handlers MUST be the very first import.
+// esbuild initialises leaf modules (no dependencies) before modules with
+// many transitive deps, so crash-handlers.ts registers its process.on()
+// listeners before server/app.ts — and its async routesReady IIFE — runs.
+import "./crash-handlers";
 import { app, routesReady } from "../server/app";
 import type { Request, Response } from "express";
-
-// ── Prevent process crash from unhandled rejections / uncaught exceptions ──
-// Node.js 15+ terminates the process on unhandledRejection by default.
-// In Vercel this surfaces as FUNCTION_INVOCATION_FAILED with no useful message.
-// These handlers convert any crash into a logged warning instead.
-process.on("uncaughtException", (err) => {
-  console.error("[vercel] uncaughtException:", err?.message, err?.stack);
-});
-process.on("unhandledRejection", (reason: any) => {
-  console.error("[vercel] unhandledRejection:", reason?.message ?? reason, reason?.stack);
-});
 
 export default async function handler(req: Request, res: Response) {
   try {

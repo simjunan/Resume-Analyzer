@@ -60,6 +60,23 @@ async function buildAll() {
     logLevel: "info",
   });
 
+  // Pre-build the Vercel serverless function so @vercel/node does not need to
+  // compile TypeScript or resolve cross-directory ESM/CJS imports at deploy
+  // time. We use esbuild (same toolchain as local dev) to produce a fully
+  // self-contained CJS bundle — identical to what passes local smoke tests.
+  console.log("building vercel api function...");
+  await esbuild({
+    entryPoints: ["api/index.ts"],
+    platform: "node",
+    bundle: true,
+    format: "cjs",
+    outfile: "api/index.js",
+    // pg-native is an optional native addon that is not installed.
+    // Everything else is bundled so the function is fully self-contained
+    // and Vercel does not need to resolve node_modules at runtime.
+    external: ["pg-native"],
+    logLevel: "info",
+  });
 }
 
 buildAll().catch((err) => {
